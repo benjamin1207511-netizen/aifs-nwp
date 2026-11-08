@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="description" content="BAMC ECMWF 华南预报：16 类 ECMWF AIFS 预报图，每天 4 个时次，最远 240 小时。">
+<title>BAMC AIFS 预报</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='12' fill='%23ffffff'/%3E%3Ccircle cx='24' cy='24' r='16' fill='none' stroke='%230066cc' stroke-width='2'/%3E%3Cpath d='M8 24h32M24 8c8 8 8 24 0 32M24 8c-8 8-8 24 0 32' fill='none' stroke='%231e7bb8' stroke-width='1.2' opacity='.7'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css?v=19">
+</head>
+<body>
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 4.8v14.4c0 .8.9 1.3 1.6.9l11-7.2c.6-.4.6-1.3 0-1.7l-11-7.2C8.9 3.5 8 4 8 4.8z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4.5" width="4.2" height="15" rx="1.4"/><rect x="13.8" y="4.5" width="4.2" height="15" rx="1.4"/></symbol>
+  <symbol id="i-first" viewBox="0 0 24 24"><rect x="4.5" y="5" width="2.6" height="14" rx="1.2"/><path d="M20 6.2v11.6c0 .8-.9 1.3-1.6.9l-9-5.8c-.6-.4-.6-1.3 0-1.7l9-5.8c.7-.4 1.6 0 1.6.8z"/></symbol>
+  <symbol id="i-last" viewBox="0 0 24 24"><rect x="16.9" y="5" width="2.6" height="14" rx="1.2"/><path d="M4 6.2v11.6c0 .8.9 1.3 1.6.9l9-5.8c.6-.4.6-1.3 0-1.7l-9-5.8C4.9 5 4 5.4 4 6.2z"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M16.5 5.6v12.8c0 .8-.9 1.3-1.6.9l-9.2-6.4c-.6-.4-.6-1.3 0-1.7l9.2-6.4c.7-.4 1.6 0 1.6.8z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M7.5 5.6v12.8c0 .8.9 1.3 1.6.9l9.2-6.4c.6-.4.6-1.3 0-1.7L9.1 4.8c-.7-.4-1.6 0-1.6.8z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.4 11a8.5 8.5 0 1 0-2.2 6.1"/><path d="M20.5 4.6v6.2h-6.2"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+  <symbol id="i-shrink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></symbol>
+  <symbol id="i-zoom-in" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="6.4"/><path d="M15.8 15.8 21 21M11 8.2v5.6M8.2 11h5.6"/></symbol>
+  <symbol id="i-zoom-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="6.4"/><path d="M15.8 15.8 21 21M8.2 11h5.6"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 9.5V4.8h4.7M4.8 9.2A7.6 7.6 0 1 1 4.6 14"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.8v11.4M7.4 11l4.6 4.6 4.6-4.6"/><path d="M4.5 19.5h15"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M18.5 14v4.5a1.5 1.5 0 0 1-1.5 1.5H5.5A1.5 1.5 0 0 1 4 18.5V7a1.5 1.5 0 0 1 1.5-1.5H10"/></symbol>
+  <symbol id="i-loop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H19"/><path d="m16.4 3.4 2.8 2.6-2.8 2.6"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H5"/><path d="m7.6 20.6-2.8-2.6 2.8-2.6"/></symbol>
+</svg>
+
+<div class="app">
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="BAMC AIFS 预报首页">
+      <span class="brand-logo" aria-hidden="true">
+        <svg viewBox="0 0 48 48">
+          <circle cx="24" cy="24" r="18" fill="#f5f9ff" stroke="#0066cc" stroke-width="2"/>
+          <path d="M6 24h36M24 6c8 9 8 27 0 36M24 6c-8 9-8 27 0 36M10 13.5c9 4 19 4 28 0M10 34.5c9-4 19-4 28 0" fill="none" stroke="#1e7bb8" stroke-width="1.15" opacity=".7"/>
+          <circle cx="31" cy="17" r="2.2" fill="#2f9e44"/>
+        </svg>
+      </span>
+      <h1><span class="bamc">BAMC</span> <span class="ec">AIFS 预报</span></h1>
+    </a>
+    <div class="top-right">
+      <span class="clock" id="clock">现在是 —</span>
+      <span class="status" id="status"><span class="dot"></span><span id="statusText">连接中</span></span>
+      <button class="icon-button" id="btnRefresh" title="刷新图像（R）" aria-label="刷新">
+        <svg><use href="#i-refresh"/></svg>
+      </button>
+      <button class="icon-button" id="btnFullscreen" title="全屏（F）" aria-label="全屏">
+        <svg><use href="#i-expand"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <h2>风起岭南，云图见未来</h2>
+        <p>ECMWF AIFS 华南区域 · 16 类预报图 · 每天 4 个时次 · 最远 240 小时</p>
+      </div>
+      <div class="actions">
+        <button class="primary" id="btnHeroRefresh">刷新图像</button>
+      </div>
+    </section>
+
+    <section class="layout">
+      <div class="panel main-panel" id="viewerCard">
+        <div class="panel-head">
+          <div>
+            <h3 id="imageTitle">AIFS · 预报图</h3>
+            <span class="muted" id="imageSub">正在连接数据源</span>
+          </div>
+          <div class="panel-actions">
+            <span class="image-status" id="imageStatus">等待加载</span>
+            <div class="image-tools">
+              <button class="tool" id="btnZoomOut" title="缩小" aria-label="缩小"><svg><use href="#i-zoom-out"/></svg></button>
+              <button class="tool" id="btnZoomIn" title="放大" aria-label="放大"><svg><use href="#i-zoom-in"/></svg></button>
+              <button class="tool" id="btnZoomReset" title="复位" aria-label="复位"><svg><use href="#i-reset"/></svg></button>
+              <button class="tool" id="btnDownloadIcon" title="下载当前图像" aria-label="下载"><svg><use href="#i-download"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <div class="loadbar"><span id="loadbar"></span></div>
+
+        <div class="viewer" id="viewer">
+          <div class="stage" id="stage">
+            <img class="layer" id="layerA" alt="AIFS 预报图" draggable="false">
+            <img class="layer" id="layerB" alt="" aria-hidden="true" draggable="false">
+          </div>
+          <div class="placeholder" id="placeholder">正在请求预报图像…</div>
+          <div class="error-box" id="errorBox" hidden></div>
+        </div>
+
+        <div class="img-footer">
+          <span class="footer-left"><span class="region-chip" id="regionBadge">华南区域</span><span id="requestInfo">—</span></span>
+        </div>
+
+        <div class="timeline">
+          <div class="transport">
+            <button class="tbtn" id="btnFirst" title="最早一帧" aria-label="最早"><svg><use href="#i-first"/></svg></button>
+            <button class="tbtn" id="btnPrev" title="上一帧" aria-label="上一帧"><svg><use href="#i-prev"/></svg></button>
+            <button class="play" id="btnPlay" title="播放 / 暂停" aria-label="播放"><svg id="playIcon"><use href="#i-play"/></svg></button>
+            <button class="tbtn" id="btnNext" title="下一帧" aria-label="下一帧"><svg><use href="#i-next"/></svg></button>
+            <button class="tbtn" id="btnLast" title="最新一帧" aria-label="最新"><svg><use href="#i-last"/></svg></button>
+          </div>
+          <div class="track">
+            <input type="range" id="slider" min="0" max="0" value="0" step="1" aria-label="时间轴">
+            <div class="axis"><span id="axisStart">—</span><span id="axisEnd">—</span></div>
+          </div>
+          <div class="time-readout"><b id="curTime">--:--</b><span id="frameIdx">0 / 0</span></div>
+        </div>
+      </div>
+
+      <aside class="side">
+        <div class="panel controls">
+          <h3>预报图获取设置</h3>
+          <div class="field">
+            <label for="productSelect">预报产品</label>
+            <select id="productSelect"></select>
+          </div>
+          <div class="field">
+            <label for="timeSelect">图像时次（本地时间）</label>
+            <select id="timeSelect"></select>
+          </div>
+          <div class="pair">
+            <div class="field">
+              <label for="speedSelect">播放速度</label>
+              <select id="speedSelect">
+                <option value="0.5">0.5×</option>
+                <option value="1" selected>1×</option>
+                <option value="2">2×</option>
+                <option value="4">4×</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>循环播放</label>
+              <button class="toggle on" id="btnLoop" aria-pressed="true"><svg><use href="#i-loop"/></svg><span>开启</span></button>
+            </div>
+          </div>
+          <button class="primary full" id="btnApply">获取 / 刷新图像</button>
+          <button class="full" id="btnDownload">下载当前图像</button>
+          <p class="hint" id="productNote">正在读取产品信息…</p>
+        </div>
+
+        <div class="panel info-card">
+          <h3>当前产品</h3>
+          <div class="meta-row"><span>范围</span><b id="metaCoverage">—</b></div>
+          <div class="meta-row"><span>内容</span><b id="metaLevel">—</b></div>
+          <div class="meta-row"><span>起报</span><b id="metaRun">—</b></div>
+          <div class="meta-row"><span>更新</span><b>每天 4 个时次</b></div>
+        </div>
+      </aside>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+<script src="/app.js?v=18"></script>
+</body>
+</html>

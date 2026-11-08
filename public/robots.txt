@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /api/
+Allow: /$
+Allow: /index.html
+
+# 本站为个人预报图展示页，不提供 API 批量抓取授权。
