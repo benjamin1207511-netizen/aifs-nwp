@@ -23,7 +23,7 @@
 
 与 open-meteo 版本的根本差别：
   1. 不经过任何第三方 API，直接读 ECMWF Open Data 的 GRIB2；
-  2. 每一天 00/06/12/18Z 四个起报场都能用（open-meteo 版只取 00/12Z）；
+  2. 和 open-meteo 版一致，只取 00Z / 12Z 两个起报场（AIFS 其实 06Z/18Z 也有）；
   3. 只按 .index 里的字节区间下载需要的字段（HTTP Range），
      一步约 12 MB，整场约 500 MB，而不是整个 56 MB × 37 步；
   4. 拿到的是原生 0.25° 规则网格，不再需要 open-meteo 的点数据插值；
@@ -83,7 +83,7 @@ BOX = {"west": 79.5, "south": -0.5, "east": 140.5, "north": 50.5}
 
 LEADS = list(range(24, 241, 6))          # +24h … +240h，每 6 小时一帧，共 37 帧
 EXTRA_STEPS = [0, 6, 12, 18]             # 算 6h/24h 降水和 24h 阵风需要的前置时次
-RUN_HOURS = (0, 6, 12, 18)               # AIFS Single 每天 4 个起报场
+RUN_HOURS = (0, 12)                      # 只用 00Z / 12Z 两个起报场
 COMPLETE_STEP = 240                      # 有这个时次才算完整场次
 
 # ---------------------------------------------------------------- 下载字段
@@ -360,12 +360,18 @@ def run_state(run_dt: datetime) -> str:
 
 
 def latest_run(now: datetime | None = None) -> str:
-    """选最新且已经更新到 +240h 的 00/06/12/18Z 起报场。"""
+    """选最新且已经更新到 +240h 的 00Z / 12Z 起报场。
+
+    AIFS 在 06Z / 18Z 也有场次，但本站和 open-meteo 版一致，只取 00Z / 12Z
+    两个主时次；+240h 没补齐的场次跳过，避免出大量空白尾帧。
+    """
     now = (now or datetime.now(UTC)).replace(minute=0, second=0, microsecond=0)
-    anchor = now - timedelta(hours=now.hour % 6)
+    anchor = now.replace(hour=12) if now.hour >= 12 else now.replace(hour=0)
     fallback = ""
-    for offset in range(0, 96, 6):
+    for offset in range(0, 120, 12):
         candidate = anchor - timedelta(hours=offset)
+        if candidate.hour not in RUN_HOURS:
+            continue
         label = candidate.strftime("%Y-%m-%dT%H:%M")
         log("检查 AIFS 起报场 %s" % label)
         state = run_state(candidate)

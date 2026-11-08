@@ -3,7 +3,7 @@
 """
 AIFS 图片自动更新器。
 
-ECMWF AIFS Single 每天有 4 个起报场（00/06/12/18 UTC），Open Data 上先出
+ECMWF AIFS Single 每天有 4 个起报场，本站只取 00Z / 12Z；Open Data 上先出
 前面几个时次、几小时后才补齐到 +240h。本程序每 30 分钟检查一次，发现新的
 完整场次后：
 
@@ -355,7 +355,7 @@ def main() -> None:
         log("启动失败：%s" % exc)
         raise SystemExit(1)
 
-    log("自动更新器启动；轮询间隔 %d 秒；ECMWF AIFS 每天 4 个起报场" % interval)
+    log("自动更新器启动；轮询间隔 %d 秒；只用 00Z / 12Z 两个起报场" % interval)
     try:
         while True:
             try:
