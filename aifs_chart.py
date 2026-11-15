@@ -390,6 +390,7 @@ def latest_run(now: datetime | None = None) -> str:
 
 # ---------------------------------------------------------------- GRIB 解包
 GRID_LOCK = threading.Lock()
+GRIB_LOCK = threading.Lock()
 GRID_CACHE: dict = {}
 LAST_GRID: dict | None = None
 
@@ -502,6 +503,22 @@ def _wanted_records(records: list[dict], sfc: list[str], pl: dict[int, list[str]
     return selected
 
 
+def _eccodes_warmup() -> None:
+    """在主线程里先把 eccodes 的 definitions 加载好。
+
+    ecCodes 的 definitions 是首次建 handle 时惰性加载的；如果多个下载线程同时
+    第一次建 handle，会撞上初始化竞争（表现为 boot.def 解析失败 + 进程直接 abort）。
+    这里先在主线程完成一次建/释放，之后再进线程池。
+    """
+    import eccodes
+
+    gid = eccodes.codes_grib_new_from_samples("GRIB2")
+    try:
+        eccodes.codes_get(gid, "shortName")
+    finally:
+        eccodes.codes_release(gid)
+
+
 def fetch_fields(run_dt: datetime, step: int, sfc: list[str],
                  pl: dict[int, list[str]]) -> dict[tuple[str, int], "np.ndarray"]:
     """按 .index 的字节区间只下载需要的字段，返回 {(shortName, level): 2D array}。"""
@@ -512,9 +529,11 @@ def fetch_fields(run_dt: datetime, step: int, sfc: list[str],
     ranges = [(int(r["_offset"]), int(r["_offset"]) + int(r["_length"]) - 1) for r in selected]
     blob = http_get(_step_base_url(run_dt, step) + ".grib2", rng=ranges, timeout=300)
     fields = {}
-    for message in _extract_messages(blob):
-        key, field = _decode_subset(message)
-        fields[key] = field
+    # ecCodes 用全局 context，多线程同时解码并不保险；下载是并发的，解码串行。
+    with GRIB_LOCK:
+        for message in _extract_messages(blob):
+            key, field = _decode_subset(message)
+            fields[key] = field
     expected = {(p, 0) for p in sfc} | {(p, lv) for lv, ps in pl.items() for p in ps}
     missing = sorted(expected - set(fields))
     if missing:
@@ -767,6 +786,8 @@ def build_dataset(run_dt: datetime, workers: int = 4, reuse: bool = True) -> dic
     cached = {s for s, p in pending if reuse and p.is_file()}
     todo = [s for s, _ in pending if s not in cached]
     log("时次共 %d 个：缓存命中 %d，需要下载 %d" % (len(pending), len(cached), len(todo)))
+    if todo:
+        _eccodes_warmup()
 
     def fetch_one(step: int):
         if step == 0:
