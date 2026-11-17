@@ -167,11 +167,15 @@ def validate_build(build_dir: Path, run_text: str) -> None:
         raise RuntimeError("构建目录不存在：%s" % build_dir)
 
     expected = {spec["subdir"]: spec for spec in aifs_chart.PRODUCTS.values()}
+    overviews = {subdir + aifs_chart.OVERVIEW_SUFFIX for subdir in expected}
     actual = {p.name for p in build_dir.iterdir() if p.is_dir()}
     missing = set(expected) - actual
-    extra = actual - set(expected)
+    extra = actual - set(expected) - overviews
     if missing or extra:
         raise RuntimeError("构建产品不完整：缺少 %s，多出 %s" % (sorted(missing), sorted(extra)))
+    missing_ov = overviews - actual
+    if missing_ov:
+        raise RuntimeError("缺少总览目录：%s" % sorted(missing_ov))
 
     for subdir in expected:
         manifest_path = build_dir / subdir / "manifest.json"
@@ -187,7 +191,22 @@ def validate_build(build_dir: Path, run_text: str) -> None:
             path = build_dir / subdir / str(frame.get("file") or "")
             if not path.is_file() or path.stat().st_size < 1000:
                 raise RuntimeError("图片缺失或为空：%s" % path)
-    log("构建校验通过：%d 个产品，每产品 %d 帧" % (len(expected), len(aifs_chart.LEADS)))
+
+    for subdir in sorted(overviews):
+        manifest_path = build_dir / subdir / "manifest.json"
+        if not manifest_path.is_file():
+            raise RuntimeError("缺少总览 manifest：%s" % manifest_path)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if parse_run(manifest.get("run")) != parse_run(run_text):
+            raise RuntimeError("%s 的起报场不正确" % subdir)
+        frames = manifest.get("frames") or []
+        if len(frames) != 1:
+            raise RuntimeError("%s 的总览帧数不是 1" % subdir)
+        path = build_dir / subdir / str(frames[0].get("file") or "")
+        if not path.is_file() or path.stat().st_size < 1000:
+            raise RuntimeError("总览图片缺失或为空：%s" % path)
+    log("构建校验通过：%d 个产品 × %d 帧 + %d 张总览"
+        % (len(expected), len(aifs_chart.LEADS), len(overviews)))
 
 
 def publish_build(build_dir: Path) -> None:

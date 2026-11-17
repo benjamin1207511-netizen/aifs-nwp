@@ -56,6 +56,7 @@
     btnZoomIn: $("btnZoomIn"),
     btnZoomOut: $("btnZoomOut"),
     btnZoomReset: $("btnZoomReset"),
+    btnOverview: $("btnOverview"),
     toast: $("toast"),
   };
 
@@ -71,6 +72,7 @@
     playing: false,
     speed: 1,
     loop: true,
+    overview: false,
     timer: null,
     autoTimer: null,
     reqSeq: 0,
@@ -204,7 +206,7 @@
 
   function imgUrl(frame) {
     return "/api/img?p=" + encodeURIComponent(state.product) + "&s=" + encodeURIComponent(frame.s) +
-      "&v=" + encodeURIComponent(IMG_VERSION);
+      "&v=" + encodeURIComponent(IMG_VERSION) + (state.overview ? "&view=overview" : "");
   }
 
   function downloadUrl() {
@@ -228,9 +230,11 @@
     els.metaCoverage.textContent = coverage;
     els.metaLevel.textContent = level || "—";
     els.metaRun.textContent = data.run || "—";
-    els.productNote.textContent = level
-      ? level + " · 每 " + intervalText + "一帧 · 共 " + state.frames.length + " 帧"
-      : "每 " + intervalText + "一帧";
+    els.productNote.textContent = state.overview
+      ? (level || "19 帧总览") + " · 点“单帧”回到时间轴"
+      : (level
+        ? level + " · 每 " + intervalText + "一帧 · 共 " + state.frames.length + " 帧"
+        : "每 " + intervalText + "一帧");
   }
 
   function fillProducts() {
@@ -287,9 +291,11 @@
     els.axisStart.textContent = state.frames.length ? shortLocal(state.frames[0]) : "—";
     els.axisEnd.textContent = state.frames.length ? shortLocal(state.frames[state.frames.length - 1]) : "—";
     if (els.timeSelect && total) els.timeSelect.value = String(state.idx);
-    els.requestInfo.textContent = frame
-      ? localText(frame) + " 北京时间 · 起报 " + state.run + " · +" + leadHours(frame) + "h"
-      : "—";
+    els.requestInfo.textContent = !frame
+      ? "—"
+      : (state.overview
+        ? "总览图 · 起报 " + state.run
+        : localText(frame) + " 北京时间 · 起报 " + state.run + " · +" + leadHours(frame) + "h");
     updateTransport();
   }
 
@@ -434,7 +440,7 @@
     startLoadingBar();
 
     try {
-      const data = await api("/api/frames?p=" + encodeURIComponent(target.id));
+      const data = await api("/api/frames?p=" + encodeURIComponent(target.id) + (state.overview ? "&view=overview" : ""));
       if (token !== state.loadSeq) return;
 
       state.frames = Array.isArray(data.frames) ? data.frames : [];
@@ -465,6 +471,22 @@
       setImageStatus("加载失败", "err");
       progress(0);
     }
+  }
+
+  function setOverview(on) {
+    state.overview = Boolean(on);
+    if (els.btnOverview) {
+      els.btnOverview.classList.toggle("on", state.overview);
+      els.btnOverview.setAttribute("aria-pressed", state.overview ? "true" : "false");
+      const label = els.btnOverview.querySelector("span");
+      if (label) label.textContent = state.overview ? "总览" : "单帧";
+    }
+  }
+
+  function toggleOverview() {
+    setOverview(!state.overview);
+    toast(state.overview ? "已切换到 19 帧总览" : "已切换到单帧时间轴");
+    loadProduct(state.product, { resetImage: true, forceReload: true });
   }
 
   function play() {
@@ -609,6 +631,8 @@
       if (state.playing) scheduleTick();
     });
 
+    if (els.btnOverview) els.btnOverview.addEventListener("click", toggleOverview);
+
     els.btnLoop.addEventListener("click", () => {
       state.loop = !state.loop;
       updateTransport();
@@ -699,6 +723,8 @@
         toggleFullscreen();
       } else if (event.key === "r" || event.key === "R") {
         refreshCurrent();
+      } else if (event.key === "o" || event.key === "O") {
+        toggleOverview();
       } else if (event.key === "0") {
         resetZoom();
       } else if (event.key === "+" || event.key === "=") {

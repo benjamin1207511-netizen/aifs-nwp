@@ -7,6 +7,7 @@
 - 华南区域：**16–28°N、105–121°E**（原生 0.25° 网格）
 - 综合图与 500hPa 风场另有东亚版：**0–50°N、80–140°E**
 - 纯 Python 标准库后端，无数据库；图像为预生成 PNG，更新后热切换，站点无需重启
+- 每个产品另有一张 **19 帧总览**（5×4 拼图，+24h…+240h 每 12 小时），页面上一键切换
 - 内置反爬（会话 Cookie、限速、UA 过滤、扫描器拦截、IP 黑名单、图片防盗链）
 - 内置自动更新器：只使用已经补齐到 +240h 的完整场次，半截场次自动跳过
 
@@ -101,6 +102,26 @@ AIFS Single 输出的是模式原始场，部分产品需要诊断，脚本里�
 | CAPE | 地面气块法：2m 温湿起步，干绝热到 LCL，再伪绝热积分到 150hPa，8 层环境廓线插值 |
 | 24h 阵风 | AIFS 不输出阵风，用 10m 风 24h 最大值 × 1.5 估算（图上标注 est.） |
 
+## 19 帧总览
+
+每个产品都会额外拼一张总览图：把 **+24h…+240h 每 12 小时**（共 19 帧）的单帧图
+裁掉标题、坐标和色标，按 **5 列 × 4 行** 排成一张 1980×1530 的 PNG，底部放一条本产品
+共用的色标。做法和 `ec-wave`（EC 海浪）站的总览一致。
+
+- 页面侧栏「显示模式」按钮（快捷键 **O**）在 **单帧时间轴** 和 **总览** 之间切换；
+- 总览图存在 `aifs/<产品目录>-overview/overview.png`，manifest 里只有一帧；
+- 自动更新时会随单帧图一起生成，校验通过后一起热切换；
+- 只想重拼总览（不重新下载/出图）：
+
+```bash
+python aifs_chart.py --overviews-only --run 2026-11-15T00:00 --out aifs
+python aifs_chart.py --overviews-only --run 2026-11-15T00:00 --out aifs --products cape,cloud
+```
+
+因为 AIFS 单帧产品从 +24h 起、每 12 小时正好 19 帧，4×5 网格会留一个空格；
+如果要 20 帧，把 `aifs_chart.py` 里的 `OVERVIEW_LEADS` 改成 `range(12, 241, 12)`
+并让 `LEADS` 也包含 +12h 即可。
+
 ## 更新图片
 
 ```bash
@@ -121,7 +142,7 @@ Windows 也可以：
 - 每个时次的解码结果缓存到 `_cache/steps/`，断网后重跑不重复下载；
 - 单次失败自动重试 3 次（`AIFS_BUILD_RETRIES` / `AIFS_RETRY_WAIT` 可调）；
 - 图片先写入 `aifs_build/`，校验通过后整体替换，成功后清理缓存与旧图；
-- 每次发布后自动删除旧场次图片，**磁盘上只保留最新一组 16×37 张**（`prune_live`）。
+- 每次发布后自动删除旧场次图片，**磁盘上只保留最新一组 16×37 张 + 16 张总览**（`prune_live`）。
 
 手动生成：
 
@@ -175,7 +196,8 @@ aifs-south-china/
 ├─ public/               # 前端（index.html / style.css / app.js / robots.txt）
 └─ aifs/                 # 16 类产品，每类 37 张 PNG + manifest.json
    ├─ combined/  combined-ea/  h500/  h500-ea/ …
-   └─ cloud/
+   ├─ cloud/
+   └─ combined-overview/ … cloud-overview/   # 每类一张 overview.png（19 帧总览）
 ```
 
 ## 让局域网 / 公网访问

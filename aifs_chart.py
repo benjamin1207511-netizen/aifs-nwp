@@ -82,6 +82,9 @@ DEFAULT_DOMAIN = "sc"
 BOX = {"west": 79.5, "south": -0.5, "east": 140.5, "north": 50.5}
 
 LEADS = list(range(24, 241, 6))          # +24h … +240h，每 6 小时一帧，共 37 帧
+OVERVIEW_LEADS = list(range(24, 241, 12))  # 总览：每 12 小时一帧，共 19 帧
+OVERVIEW_SUFFIX = "-overview"            # 总览图放在 <产品目录>-overview/ 下
+OVERVIEW_COLS, OVERVIEW_ROWS = 5, 4      # 总览拼图 5 列 × 4 行
 EXTRA_STEPS = [0, 6, 12, 18]             # 算 6h/24h 降水和 24h 阵风需要的前置时次
 RUN_HOURS = (0, 12)                      # 只用 00Z / 12Z 两个起报场
 COMPLETE_STEP = 240                      # 有这个时次才算完整场次
@@ -1289,6 +1292,251 @@ def write_manifests(run_dt: datetime, out_dir: Path, products: list[str],
         log("已更新 %s" % (subdir / "manifest.json"))
 
 
+# ---------------------------------------------------------------- 总览拼图
+# 每个产品一张 5×4 的总览图：+24h…+240h 每 12 小时一帧（共 19 帧），
+# 布局与 EC 海浪站的总览一致（裁掉单帧图的标题/坐标/色标，只留地图，
+# 底部放一条本产品共用的色标）。
+_OVERVIEW_CBARS = {
+    "combined": dict(
+        levels=RAIN_6H_LEVELS, colors=RAIN_6H_COLORS, ticks=RAIN_6H_LEVELS,
+        labels=["0.1", "1", "4", "13", "25", "60", "120", "250"],
+        title="6h rainfall (mm)", extend="max",
+    ),
+    "t2m": dict(
+        levels=TEMP_LEVELS, colors=TEMP_COLORS, ticks=TEMP_LEVELS,
+        labels=[str(x) for x in TEMP_LEVELS], title="2m temperature (°C)", extend="both",
+    ),
+    "h500": dict(
+        levels=HEIGHT_FILL_LEVELS, colors=HEIGHT_FILL_COLORS,
+        ticks=[5800, 5840, 5880, 5920, 5960],
+        labels=["580", "584", "588", "592", "596"],
+        title="500hPa height (dam)", extend="both",
+    ),
+    "rain24": dict(
+        levels=RAIN_24H_LEVELS, colors=RAIN_24H_COLORS, ticks=RAIN_24H_LEVELS,
+        labels=["0.1", "1", "10", "25", "50", "100", "250"],
+        title="24h rainfall (mm)", extend="max",
+    ),
+    "mslp": dict(
+        levels=MSLP_LEVELS, cmap="RdYlBu",
+        ticks=[990, 995, 1000, 1005, 1010, 1015, 1020, 1025, 1030],
+        labels=["990", "995", "1000", "1005", "1010", "1015", "1020", "1025", "1030"],
+        title="MSLP (hPa)", extend="both",
+    ),
+    "wind10": dict(
+        levels=WIND_SPEED_LEVELS, colors=WIND_SPEED_COLORS,
+        ticks=WIND_SPEED_LEVELS, labels=WIND_SPEED_LABELS,
+        title="10m wind (m/s)", extend="both", over="#ff1900", under="#ffffff",
+    ),
+    "wind925": dict(
+        levels=WIND925_LEVELS, cmap="YlGnBu", ticks=WIND925_LEVELS,
+        labels=[str(x) for x in WIND925_LEVELS], title="925hPa wind (m/s)", extend="max",
+    ),
+    "gust24": dict(
+        levels=WIND_SPEED_LEVELS, colors=WIND_SPEED_COLORS,
+        ticks=WIND_SPEED_LEVELS, labels=WIND_SPEED_LABELS,
+        title="24h gust (m/s)", extend="both", over="#ff1900", under="#ffffff",
+    ),
+    "cape": dict(
+        levels=CAPE_LEVELS, cmap="YlOrRd", ticks=CAPE_LEVELS,
+        labels=[str(x) for x in CAPE_LEVELS], title="CAPE (J/kg)", extend="max",
+    ),
+    "kindex": dict(
+        levels=K_LEVELS, cmap="Spectral_r", ticks=K_LEVELS,
+        labels=[str(x) for x in K_LEVELS], title="K index (°C)", extend="both",
+    ),
+    "pwat": dict(
+        levels=PWAT_LEVELS, cmap="YlGnBu", ticks=PWAT_LEVELS,
+        labels=[str(x) for x in PWAT_LEVELS], title="PWAT (mm)", extend="max",
+    ),
+    "rh2m": dict(
+        levels=RH_LEVELS, cmap="YlGnBu", ticks=RH_LEVELS,
+        labels=[str(x) for x in RH_LEVELS], title="relative humidity (%)", extend="both",
+    ),
+    "cloud": dict(
+        levels=CLOUD_LEVELS, colors=CLOUD_COLORS, ticks=CLOUD_LEVELS,
+        labels=CLOUD_LABELS, title="total cloud cover (tenths)", extend="both",
+        over=CLOUD_OVER, under="#ffffff",
+    ),
+}
+_OVERVIEW_CBARS["rh500"] = _OVERVIEW_CBARS["rh2m"]
+
+
+def overview_subdir(spec: dict) -> str:
+    return spec["subdir"] + OVERVIEW_SUFFIX
+
+
+def _overview_mappable(kind: str):
+    import matplotlib
+    from matplotlib.cm import ScalarMappable
+    from matplotlib.colors import BoundaryNorm, ListedColormap
+
+    spec = _OVERVIEW_CBARS[kind]
+    levels = spec["levels"]
+    if "colors" in spec:
+        cmap = ListedColormap(spec["colors"])
+    else:
+        cmap = matplotlib.colormaps[spec["cmap"]].copy()
+    if spec.get("over"):
+        cmap.set_over(spec["over"])
+    if spec.get("under"):
+        cmap.set_under(spec["under"])
+    norm = BoundaryNorm(levels, cmap.N)
+    sm = ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    return sm, spec
+
+
+def _panel_crop_box(domain: str) -> tuple[int, int, int, int]:
+    """算出单帧图里地图轴的像素范围 (left, right, top, bottom)。
+
+    cartopy 的 PlateCarree 是等经纬度比例，set_aspect('equal') 会把
+    [0.065, 0.075, 0.80, 0.80] 这个轴框在横向或纵向上收窄并居中，
+    所以不能直接用轴框的像素值，要按区域的经纬跨度比例算一次。
+    """
+    d = DOMAINS[domain]
+    span_x = d["east"] - d["west"]
+    span_y = d["north"] - d["south"]
+    width_px, height_px = 1400, 1008        # 10×7.2 in @ 140 dpi
+    rx, ry, rw, rh = 0.065, 0.075, 0.80, 0.80
+    box_w, box_h = rw * width_px, rh * height_px
+    if box_w / box_h > span_x / span_y:
+        axis_h = box_h
+        axis_w = box_h * span_x / span_y
+        x0 = rx * width_px + (box_w - axis_w) / 2
+        y0 = ry * height_px
+    else:
+        axis_w = box_w
+        axis_h = box_w * span_y / span_x
+        x0 = rx * width_px
+        y0 = ry * height_px + (box_h - axis_h) / 2
+    left = int(round(x0)) + 2
+    right = int(round(x0 + axis_w)) - 2
+    top = int(round(height_px - (y0 + axis_h))) + 2
+    bottom = int(round(height_px - y0)) - 2
+    return left, right, top, bottom
+
+
+def make_overview(product_id: str, run_dt: datetime, out_dir: Path,
+                  generated: str) -> Path | None:
+    """把一个产品的 +24h…+240h（每 12h）单帧图拼成一张总览。"""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.image as mpimg
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    spec = PRODUCTS[product_id]
+    panel_dir = out_dir / spec["subdir"]
+    panels = []
+    for lead in OVERVIEW_LEADS:
+        valid = run_dt + timedelta(hours=lead)
+        path = panel_dir / (spec["prefix"] + valid.strftime("%Y%m%d%H") + ".png")
+        if path.is_file():
+            panels.append((lead, path))
+    if not panels:
+        log("%s 没有可用于总览的单帧图，跳过" % product_id)
+        return None
+    if len(panels) < len(OVERVIEW_LEADS):
+        log("%s 总览缺少 %d 帧，按已有 %d 帧拼图"
+            % (product_id, len(OVERVIEW_LEADS) - len(panels), len(panels)))
+
+    sm, cbar = _overview_mappable(spec["kind"])
+    fig = Figure(figsize=(13.2, 10.2), dpi=150, facecolor="white")
+    FigureCanvasAgg(fig)
+    fig.text(0.035, 0.985, spec["title"],
+             fontsize=15, fontweight="bold", ha="left", va="top")
+    fig.text(0.975, 0.985,
+             "%s UTC  ·  +%dh–+%dh  ·  %d frames"
+             % (run_dt.strftime("%Y-%m-%d %H"), OVERVIEW_LEADS[0],
+                OVERVIEW_LEADS[-1], len(panels)),
+             fontsize=10.5, ha="right", va="top")
+    fig.text(0.035, 0.955,
+             "ECMWF AIFS 0.25°" + ("  ·  " + spec["note"] if spec.get("note") else ""),
+             fontsize=9, color="#555", ha="left", va="top")
+
+    # 单帧图 1400×1008，只裁地图轴那一块（不要标题、坐标标签和右侧色标）。
+    domain_name = spec.get("domain", DEFAULT_DOMAIN)
+    x0, x1, y0, y1 = _panel_crop_box(domain_name)
+
+    cols, rows = OVERVIEW_COLS, OVERVIEW_ROWS
+    left, right = 0.035, 0.975
+    gap = 0.012
+    top_y = 0.91
+    row_gap = 0.022
+    aspect = (x1 - x0) / (y1 - y0)          # 单帧地图的宽高比
+    slot = (right - left - gap * (cols - 1)) / cols
+    max_h = (top_y - 0.16 - row_gap * (rows - 1)) / rows
+    height = min(slot * (13.2 / 10.2) / aspect, max_h)
+    width = height * (10.2 / 13.2) * aspect
+    grid_w = cols * width + (cols - 1) * gap
+    x_start = left + (right - left - grid_w) / 2
+    for index, (lead, path) in enumerate(panels[:cols * rows]):
+        row, col = divmod(index, cols)
+        y = top_y - (row + 1) * height - row * row_gap
+        ax = fig.add_axes([x_start + col * (width + gap), y, width, height])
+        ax.imshow(mpimg.imread(path)[y0:y1, x0:x1])
+        ax.set_axis_off()
+        ax.set_title("+%dh" % lead, fontsize=9.5, loc="left", pad=2, color="#111111")
+
+    cax = fig.add_axes([0.28, 0.075, 0.44, 0.012])
+    cb = fig.colorbar(sm, cax=cax, orientation="horizontal",
+                      ticks=cbar["ticks"], extend=cbar.get("extend", "neither"))
+    cb.ax.tick_params(labelsize=8, length=2)
+    cb.set_ticklabels(cbar["labels"])
+    cb.set_label(cbar["title"], fontsize=8, labelpad=3)
+    fig.text(0.975, 0.015, "www.bamc.top", fontsize=10, ha="right", va="bottom")
+    fig.text(0.035, 0.015, "Init: %s UTC" % run_dt.strftime("%Y-%m-%d %H"),
+             fontsize=7.5, color="#666", ha="left", va="bottom")
+
+    overview_dir = out_dir / overview_subdir(spec)
+    overview_dir.mkdir(parents=True, exist_ok=True)
+    out_path = overview_dir / "overview.png"
+    fig.savefig(out_path, dpi=150, facecolor="white")
+    fig.clf()
+
+    domain_name = spec.get("domain", DEFAULT_DOMAIN)
+    stamp = run_dt.strftime("%Y%m%d%H")
+    manifest = {
+        "product": product_id + OVERVIEW_SUFFIX,
+        "run": run_dt.strftime("%Y-%m-%d %H:%M UTC"),
+        "run_iso": run_dt.isoformat(),
+        "generated": generated,
+        "source": "ECMWF AIFS Single 0.25° (Open Data)",
+        "region": {
+            "west": DOMAINS[domain_name]["west"],
+            "south": DOMAINS[domain_name]["south"],
+            "east": DOMAINS[domain_name]["east"],
+            "north": DOMAINS[domain_name]["north"],
+        },
+        "frames": [{
+            "s": stamp,
+            "valid_utc": run_dt.strftime("%Y-%m-%d %H:%M UTC"),
+            "lead": 0,
+            "file": "overview.png",
+        }],
+    }
+    (overview_dir / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+    )
+    log("总览图 → %s（%d 帧）" % (out_path, len(panels)))
+    return out_path
+
+
+def build_overviews(run_dt: datetime, out_dir: Path, products: list[str],
+                    generated: str) -> int:
+    """给每个产品拼一张总览；单个产品失败不影响其它产品。"""
+    ok = 0
+    for product_id in products:
+        try:
+            if make_overview(product_id, run_dt, out_dir, generated) is not None:
+                ok += 1
+        except Exception as exc:  # noqa: BLE001
+            log("%s 总览生成失败：%r" % (product_id, exc))
+    log("总览完成：%d/%d 个产品" % (ok, len(products)))
+    return ok
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="生成华南 ECMWF AIFS 预报图")
     ap.add_argument("--run", default="", help="起报场，例如 2026-11-07T00:00")
@@ -1297,6 +1545,8 @@ def main() -> None:
     ap.add_argument("--products", default=",".join(ALL_PRODUCTS), help="要生成的产品，逗号分隔")
     ap.add_argument("--jobs", type=int, default=0, help="并行渲染进程数；0=自动，1=单进程")
     ap.add_argument("--download-workers", type=int, default=int(os.environ.get("AIFS_FETCH_WORKERS", "4")))
+    ap.add_argument("--overviews-only", action="store_true",
+                    help="不下载、不出单帧图，只用 --out 里已有的图片重拼总览")
     args = ap.parse_args()
 
     run = args.run or latest_run()
@@ -1307,6 +1557,11 @@ def main() -> None:
     if unknown:
         raise SystemExit("未知产品：%s" % ", ".join(unknown))
     generated = datetime.now(TZ_CN).strftime("%Y-%m-%d %H:%M HKT")
+
+    if args.overviews_only:
+        log("只重建总览：%s（%d 个产品）" % (out_dir, len(selected)))
+        build_overviews(run_dt, out_dir, selected, generated)
+        return
 
     if args.input:
         src = Path(args.input)
@@ -1322,6 +1577,7 @@ def main() -> None:
 
     render_all(run_dt, steps, out_dir, selected, jobs=args.jobs)
     write_manifests(run_dt, out_dir, selected, generated)
+    build_overviews(run_dt, out_dir, selected, generated)
     log("完成：起报场 %s，%d 个产品" % (run_dt.strftime("%Y-%m-%d %H:%M UTC"), len(selected)))
 
 
