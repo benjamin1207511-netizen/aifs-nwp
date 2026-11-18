@@ -451,8 +451,9 @@
       updateMeta(data);
       fillTimeSelect();
 
+      // 默认停在最早一帧（+24h），时间轴按时间正序展开；想直接看最新一帧点“最新”
       let index = previousStamp ? frameForStamp(previousStamp) : -1;
-      if (index < 0) index = state.frames.length - 1;
+      if (index < 0) index = 0;
       showFrame(index, Boolean(opts.forceReload));
 
       if (!opts.silent) {
@@ -486,6 +487,10 @@
   function toggleOverview() {
     setOverview(!state.overview);
     toast(state.overview ? "已切换到 19 帧总览" : "已切换到单帧时间轴");
+    const url = new URL(window.location.href);
+    if (state.overview) url.searchParams.set("view", "overview");
+    else url.searchParams.delete("view");
+    history.replaceState(null, "", url.pathname + "?" + url.searchParams.toString());
     loadProduct(state.product, { resetImage: true, forceReload: true });
   }
 
@@ -755,6 +760,7 @@
 
       const params = new URLSearchParams(window.location.search);
       const requested = params.get("p");
+      if (params.get("view") === "overview") setOverview(true);
       const initial = state.products.some((p) => p.id === requested) ? requested : DEFAULT_PRODUCT;
       const exists = state.products.some((p) => p.id === initial);
       selectProduct(exists ? initial : state.products[0].id);
