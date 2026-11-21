@@ -620,57 +620,44 @@ def _moist_dtdp(temp_k, p_hpa):
     return 100.0 * num / np.maximum(den, 1e-9)
 
 
-def calc_cape(sp_pa, t2m_k, td2m_k, t_prof, q_prof):
-    """地面气块抬升法（SB-CAPE），返回 J/kg。
-
-    气块从 2m 温湿出发：干绝热抬到抬升凝结高度（LCL），之后按伪绝热
-    过程积分到 150hPa；环境温湿廓线由 1000–300hPa 的 8 层按 ln p 线性插值。
-    积分用固定 5hPa 网格，全程向量化。
-    """
-    shp = t2m_k.shape
-    p0 = np.clip(sp_pa / 100.0, 500.0, 1050.0)
-    t0 = np.asarray(t2m_k, dtype=np.float64)
-    td0 = np.asarray(td2m_k, dtype=np.float64)
+def _calc_cape_block(p0, t0, td0, t_prof, q_prof):
+    """单块格点的 SB-CAPE（输入都是一维 / (nlev, npts)），返回 (npts,) 的 J/kg。"""
+    p0 = np.clip(p0, 500.0, 1050.0)
     e0 = np.clip(sat_vapor_pressure(td0) / 100.0, 0.1, None)   # hPa
     ln_t0 = np.log(np.maximum(t0, 150.0))
     t_lcl = 2840.0 / (3.5 * ln_t0 - np.log(e0) - 4.805) + 55.0
     t_lcl = np.clip(t_lcl, 150.0, t0)
     p_lcl = np.clip(p0 * np.power(t_lcl / t0, 1.0 / KAPPA), 100.0, p0)
 
-    npts = int(np.prod(shp))
-    p0f = p0.reshape(-1)
-    t0f = t0.reshape(-1)
-    t_lclf = t_lcl.reshape(-1)
-    p_lclf = p_lcl.reshape(-1)
-
+    npts = p0.size
     nlev = len(_P_FIXED)
     parcel = np.full((nlev, npts), np.nan)
-    env_t = (_W_ENV @ np.asarray(t_prof, dtype=np.float64).reshape(len(_ENV_LEVELS), npts))
-    env_q = (_W_ENV @ np.asarray(q_prof, dtype=np.float64).reshape(len(_ENV_LEVELS), npts))
+    env_t = _W_ENV @ t_prof
+    env_q = _W_ENV @ q_prof
     env_tv = env_t * (1.0 + 0.608 * np.clip(env_q, 0, 0.05))
 
     for k, pk in enumerate(_P_FIXED):
-        above = pk <= p0f
+        above = pk <= p0
         if not above.any():
             continue
-        ratio = np.where(above, pk / np.maximum(p0f, 1e-6), 1.0)
-        dry = above & (pk >= p_lclf)
-        parcel[k, dry] = t0f[dry] * np.power(ratio[dry], KAPPA)
+        ratio = np.where(above, pk / np.maximum(p0, 1e-6), 1.0)
+        dry = above & (pk >= p_lcl)
+        parcel[k, dry] = t0[dry] * np.power(ratio[dry], KAPPA)
         if k == 0:
             continue
         prev_pk = _P_FIXED[k - 1]
         # 刚穿过 LCL 的第一层：从 LCL 干绝热到该层
-        trans = above & (pk < p_lclf) & (prev_pk >= p_lclf)
+        trans = above & (pk < p_lcl) & (prev_pk >= p_lcl)
         if trans.any():
-            parcel[k, trans] = t_lclf[trans] * np.power(pk / p_lclf[trans], KAPPA)
+            parcel[k, trans] = t_lcl[trans] * np.power(pk / p_lcl[trans], KAPPA)
         # 已经在湿绝热段的层：由上一层伪绝热递推
-        moist = above & (pk < p_lclf) & (prev_pk < p_lclf)
+        moist = above & (pk < p_lcl) & (prev_pk < p_lcl)
         if moist.any():
             prev_t = parcel[k - 1, moist]
             parcel[k, moist] = prev_t + _moist_dtdp(prev_t, prev_pk - 0.5 * 5.0) * (pk - prev_pk)
 
     es_p = sat_vapor_pressure(np.where(np.isnan(parcel), 250.0, parcel))
-    p_pa = (_P_FIXED[:, None] * 100.0) * np.ones((1, npts))
+    p_pa = _P_FIXED[:, None] * 100.0
     rs = EPS * es_p / np.maximum(p_pa - es_p, 1.0)
     parcel_tv = parcel * (1.0 + 0.608 * np.clip(rs, 0.0, 0.05))
 
@@ -680,10 +667,35 @@ def calc_cape(sp_pa, t2m_k, td2m_k, t_prof, q_prof):
 
     valid = ~np.isnan(parcel_tv)
     pos = np.where(valid & (buoy > 0), buoy * dz, 0.0)
-    cape = pos.sum(axis=0).reshape(shp)
+    cape = pos.sum(axis=0)
     cape = np.where(cape < 25.0, 0.0, cape)
     cape = np.nan_to_num(cape, nan=0.0, posinf=0.0, neginf=0.0)
     return np.clip(cape, 0.0, 8000.0)
+
+
+def calc_cape(sp_pa, t2m_k, td2m_k, t_prof, q_prof, block: int = 5000):
+    """地面气块抬升法（SB-CAPE），返回 J/kg。
+
+    气块从 2m 温湿出发：干绝热抬到抬升凝结高度（LCL），之后按伪绝热
+    过程积分到 150hPa；环境温湿廓线由 1000–300hPa 的 8 层按 ln p 线性插值。
+    积分用固定 5hPa 网格、全程向量化。
+
+    逐列独立，所以按格点分块算：整片一次算要开 ~20 个 (171, npts) 的
+    float64 数组，华南 205×244 的网格峰值接近 900 MB；分块后只有 100 MB 出头，
+    结果完全一致。
+    """
+    shp = t2m_k.shape
+    sp = np.asarray(sp_pa, dtype=np.float64).reshape(-1)
+    t2 = np.asarray(t2m_k, dtype=np.float64).reshape(-1)
+    td2 = np.asarray(td2m_k, dtype=np.float64).reshape(-1)
+    tp = np.asarray(t_prof, dtype=np.float64).reshape(len(_ENV_LEVELS), -1)
+    qp = np.asarray(q_prof, dtype=np.float64).reshape(len(_ENV_LEVELS), -1)
+    npts = sp.size
+    out = np.empty(npts, dtype=np.float64)
+    for start in range(0, npts, max(1, block)):
+        sl = slice(start, min(npts, start + max(1, block)))
+        out[sl] = _calc_cape_block(sp[sl], t2[sl], td2[sl], tp[:, sl], qp[:, sl])
+    return out.reshape(shp)
 
 
 # ---------------------------------------------------------------- 派生各产品

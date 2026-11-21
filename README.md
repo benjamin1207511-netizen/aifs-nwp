@@ -160,6 +160,21 @@ python aifs_chart.py --input _cache/steps --run ...   # 用已有缓存重画
 - 下载默认 4 路并发，`AIFS_FETCH_WORKERS` / `--download-workers` 可调。
 - 出图默认 **140 dpi**（1400×1008）。
 
+### 资源占用（实测）
+
+| 环节 | 内存峰值 | 说明 |
+| --- | --- | --- |
+| 站点 `server.py` | **~30 MB** | 只读 PNG，按需读盘，无数据库 |
+| 下载 + GRIB 解码 | ~120 MB | 单个时次 32 个场；4 路并发约 200 MB |
+| 数据准备（含 CAPE 诊断） | **~180 MB** | CAPE 已按 5000 格点分块，整片一次算要 ~900 MB |
+| 出图 | **~400 MB / 进程** | 默认 `min(6, CPU-1)` 个进程，6 进程合计约 2.4 GB |
+| 磁盘（稳态） | **~245 MB** | 592 张单帧（~220 MB）+ 16 张总览（~25 MB） |
+| 磁盘（构建峰值） | ~650 MB | 新旧两套图 + `_cache/steps` 的 npz |
+
+所以：**只跑站点 512 MB 足够**；本机出图建议 4 GB 以上（默认并行）。
+内存紧张时用 `--jobs 2`（约 0.8 GB）或 `AIFS_RENDER_MODE=thread`
+（单进程约 0.4 GB，慢一些），`AIFS_FETCH_WORKERS=2` 再省一点。
+
 ## 反爬说明
 
 `anti_bot.py` 已接入 `server.py`，不需要单独启动：
